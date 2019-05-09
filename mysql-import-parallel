@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# Parallel MySQL restore
+#
+# Based on: https://stackoverflow.com/questions/5312395/optimising-mysql-for-parallel-import-of-massive-data-files-1-connection-per-tab
+#
+
+INPUTFILE="$1"
+DB="$2"
+
+# Split to create/insert chunks
+zcat $INPUTFILE | awk '/DROP TABLE IF EXISTS|Dumping data for table/{n++}{print >"out" n ".sql" }'
+
+# Create lists for each query type
+ls *.sql | sort -V | while read line
+do
+    echo $line;
+    
+    IS_CREATE=$(head -n 1 $line | grep "DROP TABLE IF EXISTS" | wc -c);
+    
+    if [ "$IS_CREATE" -gt 0 ]
+    then
+        echo $line >> create.txt
+    else
+        echo $line >> insert.txt 
+    fi
+done
+ 
+# Remove locks
+cat insert.txt | while read line
+do
+    echo $line
+    
+    sed -i '/40000 ALTER TABLE/d;/LOCK TABLES/d' $line
+done
+
+# Disable foreign key check
+echo "SET GLOBAL FOREIGN_KEY_CHECKS=0;" | mysql -uroot $DB
+
+# Create tables
+cat create.txt | while read line
+do
+    echo $line;
+    
+    mysql -uroot $DB < $line
+done
+
+# Insert data
+cat insert.txt | parallel -j16 --joblog joblog.txt mysql -uroot $DB "<"
+
+# Enable foreign key check
+echo "SET GLOBAL FOREIGN_KEY_CHECKS=1;" | mysql -uroot $DB

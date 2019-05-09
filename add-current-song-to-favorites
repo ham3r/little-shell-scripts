@@ -1,0 +1,11 @@
+#!/bin/sh
+# 
+# Link current playing song to the favorites dir
+#
+
+SONG=$(audtool current-song-filename)
+
+if [ "$SONG" != "" ]
+then
+    ln -s "$SONG" "~/music/${SONG##*/}"
+fi
